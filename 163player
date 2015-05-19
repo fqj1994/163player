@@ -21,11 +21,11 @@ check_dependencies() {
 
 retrive_music() {
     _ID=$1
-    URL=$(curl -s "http://music.163.com/api/song/detail/?id=$_ID&ids=\[$_ID\]" | jq ".songs[0].mp3Url")
-    if [[ "$URL" == "null" ]]; then
-        return 1
-    fi
     if [[ ! -s "$WORKDIR/music/$_ID.mp3" ]]; then
+        URL=$(curl -s "http://music.163.com/api/song/detail/?id=$_ID&ids=\[$_ID\]" | jq ".songs[0].mp3Url")
+        if [[ "$URL" == "null" ]]; then
+            return 1
+        fi
         curl -L "$(echo $URL | sed -e 's/^\"\(.*\)\"$/\1/g')" -o "$WORKDIR/music/$_ID.mp3.tmp"
         mv "$WORKDIR/music/$_ID.mp3.tmp" "$WORKDIR/music/$_ID.mp3"
     fi
@@ -36,22 +36,43 @@ play() {
     mpv "$WORKDIR/music/$_ID.mp3" -vo null
 }
 
+play_music() {
+    retrive_music "$1"
+    play "$1"
+}
+
 usage() {
     echo "Usage: "
     echo "    $0 <music-id>"
+    echo "    $0 --playlist [--shuffle] <path-to-playlist>"
     echo
     echo "Use your shell's for-loop or while-loop control sequence to do auto replay."
     exit 1
 }
 
+sigint() {
+    exit 0
+}
+
+trap sigint INT 
+
 check_dependencies >/dev/null
 
 if echo "$1" | egrep "^[0-9]+$" >/dev/null; then
-    retrive_music "$1"
-    play "$1"
+    play_music "$1"
     exit
 fi
 
+if [[ "$1" == "--playlist" ]]; then
+    PLAYLIST="$(cat "${@: -1}")"
+    if [[ "$2" == "--shuffle" ]]; then
+        PLAYLIST="$(echo "$PLAYLIST" | sort -R)"
+    fi
+    for i in $PLAYLIST; do
+        (echo "$i" | egrep "^[0-9]+$" >/dev/null) && play_music "$i";
+    done
+    exit
+fi
 
 
 usage
