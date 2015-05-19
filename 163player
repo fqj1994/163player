@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Music Player for Netease Music
+
+WORKDIR=$HOME/.163player
+
+if [[ ! -d "$WORKDIR" ]]; then
+    mkdir -p "$WORKDIR" || exit;
+fi
+if [[ ! -d "$WORKDIR/music" ]]; then
+    mkdir -p "$WORKDIR/music" || exit;
+fi
+
+check_dependencies() {
+    which base64 || exit;
+    which mpv || exit;
+    which notify-send || exit;
+    which curl || exit;
+    which jq || exit;
+}
+
+retrive_music() {
+    _ID=$1
+    URL=$(curl -s "http://music.163.com/api/song/detail/?id=$_ID&ids=\[$_ID\]" | jq ".songs[0].mp3Url")
+    if [[ "$URL" == "null" ]]; then
+        return 1
+    fi
+    if [[ ! -s "$WORKDIR/music/$_ID.mp3" ]]; then
+        curl -L "$(echo $URL | sed -e 's/^\"\(.*\)\"$/\1/g')" -o "$WORKDIR/music/$_ID.mp3.tmp"
+        mv "$WORKDIR/music/$_ID.mp3.tmp" "$WORKDIR/music/$_ID.mp3"
+    fi
+    return 0
+}
+
+play() {
+    mpv "$WORKDIR/music/$_ID.mp3" -vo null
+}
+
+usage() {
+    echo "Usage: "
+    echo "    $0 <music-id>"
+    echo
+    echo "Use your shell's for-loop or while-loop control sequence to do auto replay."
+    exit 1
+}
+
+check_dependencies >/dev/null
+
+if echo "$1" | egrep "^[0-9]+$" >/dev/null; then
+    retrive_music "$1"
+    play "$1"
+    exit
+fi
+
+
+
+usage
