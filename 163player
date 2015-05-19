@@ -7,9 +7,16 @@ WORKDIR=$HOME/.163player
 if [[ ! -d "$WORKDIR" ]]; then
     mkdir -p "$WORKDIR" || exit;
 fi
+if [[ ! -d "$WORKDIR/info" ]]; then
+    mkdir -p "$WORKDIR/info" || exit;
+fi
 if [[ ! -d "$WORKDIR/music" ]]; then
     mkdir -p "$WORKDIR/music" || exit;
 fi
+if [[ ! -d "$WORKDIR/lyrics" ]]; then
+    mkdir -p "$WORKDIR/lyrics" || exit;
+fi
+
 
 check_dependencies() {
     which base64 || exit;
@@ -17,12 +24,20 @@ check_dependencies() {
     which notify-send || exit;
     which curl || exit;
     which jq || exit;
+    which socat || exit;
+}
+
+retrive_info() {
+    _ID=$1
+    if [[ ! -s "$WORKDIR/info/$_ID.json" ]]; then
+        curl -s "http://music.163.com/api/song/detail/?id=$_ID&ids=\[$_ID\]" -o "$WORKDIR/info/$_ID.json"
+    fi
 }
 
 retrive_music() {
     _ID=$1
     if [[ ! -s "$WORKDIR/music/$_ID.mp3" ]]; then
-        URL=$(curl -s "http://music.163.com/api/song/detail/?id=$_ID&ids=\[$_ID\]" | jq ".songs[0].mp3Url")
+        URL=$(cat "$WORKDIR/info/$_ID.json" | jq ".songs[0].mp3Url")
         if [[ "$URL" == "null" ]]; then
             return 1
         fi
@@ -32,12 +47,60 @@ retrive_music() {
     return 0
 }
 
-play() {
-    mpv "$WORKDIR/music/$_ID.mp3" -vo null
+retrive_lyrics() {
+    _ID=$1
+    if [[ ! -s "$WORKDIR/lyrics/$_ID.lrc" ]]; then
+        LRC="$(curl -s "http://music.163.com/api/song/lyric?id=$_ID&lv=-1&tv=-1&csrf_token=" -H "Referer: http://music.163.com/" | jq ".lrc.lyric" -r)"
+        if [[ "$LRC" == "null" ]]; then
+            return 1
+        fi
+        echo "$LRC" > "$WORKDIR/lyrics/$_ID.lrc"
+    fi
 }
 
+play() {
+    notify-send "Playing $(cat $WORKDIR/info/$_ID.json | jq '.songs[0].name' -r)"
+    mpv "$WORKDIR/music/$_ID.mp3" -vo null --input-unix-socket=/tmp/163player-$1
+    rm /tmp/163player-$1
+}
+
+handle_lyrics() {
+    sleep 1
+    _ID=$1
+    _handle_lyrics() {
+        LYRICS="$(cat $WORKDIR/lyrics/$_ID.lrc)"
+        echo 0 > /tmp/lastqtime-$_ID
+        while true; do
+            read P || break;
+            if [[ "$P" == "null" ]]; then
+                continue
+            fi
+            echo "$LYRICS" | (
+                while read Q; do
+                    QMIN=$(echo "$Q" | sed -e 's/^\[\([0-9]*\).*/\1/g' | sed -e 's/^0*//g')
+                    QSEC=$(echo "$Q" | sed -e 's/^\[[0-9]*:\([0-9]*\).*/\1/g' | sed -e 's/^0*//g')
+                    QTIME=$((QMIN*60+QSEC))
+                    PTIME=$(echo "$P" | sed -e 's/\..*//g')
+                    if [[ "$QTIME" -le "$PTIME" ]]; then
+                        if [[ "$QTIME" -ge "$(cat /tmp/lastqtime-$_ID)" ]]; then
+                            notify-send -t 1000 "$Q"
+                            echo "$QTIME" > /tmp/lastqtime-$_ID
+                        fi
+                    fi
+                done
+            )
+        done
+        rm /tmp/lastqtime-$_ID
+    }
+    ( while true; do echo '{ "command": ["get_property", "playback-time"] }'; sleep 1; done) | socat - /tmp/163player-$1 2>/dev/null | jq --unbuffered ".data"  | _handle_lyrics
+}
+
+
 play_music() {
+    retrive_info "$1"
     retrive_music "$1"
+    retrive_lyrics "$1"
+    handle_lyrics "$1" &
     play "$1"
 }
 
@@ -51,6 +114,8 @@ usage() {
 }
 
 sigint() {
+    rm /tmp/163player-*
+    rm /tmp/lastqtime-*
     exit 0
 }
 
