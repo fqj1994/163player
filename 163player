@@ -83,7 +83,10 @@ handle_lyrics() {
                     PTIME=$(echo "$P" | sed -e 's/\..*//g')
                     if [[ "$QTIME" -le "$PTIME" ]]; then
                         if [[ "$QTIME" -ge "$(cat /tmp/lastqtime-$_ID)" ]]; then
-                            notify-send -t 1000 "$Q"
+                            LYRICCONTENT=$(echo "$Q" | sed -e 's/^\[[0-9\.:]*\]//g')
+                            if [[ "$LYRICCONTENT" != "" ]]; then
+                                notify-send -t 1000 "$Q"
+                            fi
                             echo "$QTIME" > /tmp/lastqtime-$_ID
                         fi
                     fi
