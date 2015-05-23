@@ -25,6 +25,7 @@ check_dependencies() {
     which curl || exit;
     which jq || exit;
     which socat || exit;
+    which awk || exit;
 }
 
 retrive_info() {
@@ -68,15 +69,20 @@ handle_lyrics() {
     sleep 1
     _ID=$1
     _handle_lyrics() {
-        LYRICS="$(cat $WORKDIR/lyrics/$_ID.lrc)"
+        LYRICS="$(cat -n $WORKDIR/lyrics/$_ID.lrc)"
         echo 0 > /tmp/lastqtime-$_ID
+        wc -l $WORKDIR/lyrics/$_ID.lrc | awk '{print $1;}' > /tmp/totalloc-$_ID
+        echo 0 > /tmp/lastloc-$_ID
         while true; do
             read P || break;
             if [[ "$P" == "null" ]]; then
                 continue
             fi
-            echo "$LYRICS" | (
-                while read Q; do
+            echo "$LYRICS" | tail -n $(($(cat /tmp/totalloc-$_ID) - $(cat /tmp/lastloc-$_ID))) | (
+                QQLINE=0
+                while read QQ; do
+                    Q=$(echo "$QQ" | sed -e 's/^[0-9]*\t//g')
+                    QLINE=$(echo "$QQ" | awk '{print $1;}')
                     (echo "$Q" | egrep "^\[[0-9\.:]*\]" >/dev/null) || continue
                     QMIN=$(echo "$Q" | sed -e 's/^\[\([0-9]*\).*/\1/g' | sed -e 's/^0*//g')
                     QSEC=$(echo "$Q" | sed -e 's/^\[[0-9]*:\([0-9]*\).*/\1/g' | sed -e 's/^0*//g')
@@ -89,12 +95,20 @@ handle_lyrics() {
                                 notify-send -t 1000 "$Q"
                             fi
                             echo "$QTIME" > /tmp/lastqtime-$_ID
+                            if [[ "$QQLINE" -eq "0" ]]; then
+                                QQLINE=$((QLINE-1))
+                            fi
                         fi
+                    else
+                        break
                     fi
                 done
+                echo "$QQLINE" > /tmp/lastloc-$_ID
             )
         done
         rm /tmp/lastqtime-$_ID
+        rm /tmp/totalloc-$_ID
+        rm /tmp/lastloc-$_ID
     }
     ( while true; do echo '{ "command": ["get_property", "playback-time"] }'; sleep 1; done) | socat - /tmp/163player-$1 2>/dev/null | jq --unbuffered ".data"  | _handle_lyrics
 }
@@ -120,6 +134,8 @@ usage() {
 sigint() {
     rm /tmp/163player-*
     rm /tmp/lastqtime-*
+    rm /tmp/lastloc-*
+    rm /tmp/totalloc-*
     exit 0
 }
 
