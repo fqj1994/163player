@@ -110,7 +110,7 @@ play_music() {
 usage() {
     echo "Usage: "
     echo "    $0 <music-id>"
-    echo "    $0 --playlist [--shuffle] <path-to-playlist>"
+    echo "    $0 --playlist [--shuffle | --info] <path-to-playlist>"
     echo
     echo "Use your shell's for-loop or while-loop control sequence to do auto replay."
     exit 1
@@ -135,6 +135,13 @@ if [[ "$1" == "--playlist" ]]; then
     PLAYLIST="$(cat "${@: -1}")"
     if [[ "$2" == "--shuffle" ]]; then
         PLAYLIST="$(echo "$PLAYLIST" | sort -R)"
+    fi
+    if [[ "$2" == "--info" ]]; then
+        for i in $PLAYLIST; do
+            (echo "$i" | egrep "^[0-9]+$" >/dev/null) && retrive_info "$i";
+            echo "$i" $(cat "$WORKDIR/info/$i.json" | jq '.songs[0].name' -r)
+        done
+        exit
     fi
     for i in $PLAYLIST; do
         (echo "$i" | egrep "^[0-9]+$" >/dev/null) && play_music "$i";
